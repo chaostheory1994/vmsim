@@ -34,7 +34,6 @@ public:
     void beginFileTraverse();
     void setModifier(int);
 private:
-    void future_thread();
     void opt(int);
     void notworking_clock(int);
     void aging(int);

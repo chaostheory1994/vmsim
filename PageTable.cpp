@@ -124,7 +124,8 @@ void PageTable::setModifier(int param){
  * This will only run when the frames are all filled up.
  */
 void PageTable::future_thread(){
-    
+    // This will only run when all the frames have been filled.
+//  
 }
 
 /* This is an implementation of the optimal algorithm
