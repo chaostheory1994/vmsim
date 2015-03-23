@@ -15,25 +15,29 @@
 #define CLOCK 1
 #define AGING 2
 #define WORKING_SET_CLOCK 3
+#define REF_END_BIT 0x80
+#define NO_FRAME -1
 
 typedef struct TableEntry{
     bool isDirty; // Dirty Bit
-    int isReferenced; // Reference bit. Set as int for aging algorithm
     int frameNum; // Frame Number
-    int timeStamp; // Timestamp for certain algorithms.
+    unsigned int timeStamp; // Timestamp for certain algorithms.
+    unsigned char isReferenced; // Reference bit. Set as int for aging algorithm
 } TableEntry;
 
 class PageTable {
 public:
-    PageTable(int, int, int, char*);
+    PageTable(int, int, char*);
     PageTable(const PageTable& orig);
     virtual ~PageTable();
     int getPageFaults();
     void useAddress(unsigned int, bool);
-    void printAlgorithm();
+    void printTrace();
     void beginFileTraverse();
     void setModifier(int);
+    bool isFileOpen();
 private:
+    int find_future(int);
     void opt(int);
     void notworking_clock(int);
     void aging(int);
@@ -42,7 +46,7 @@ private:
     void evictpage(int);
     int page_faults; // Stat variable
     FILE* tracefile; // File pointer for reading.
-    int mem_accesses; // Stat variable
+    unsigned int mem_accesses; // Stat variable
     int total_writes; // Stat variable
     int num_frames; // Number of physical memory frames.
     int num_pages; // Number of pages in virtual memory.
@@ -50,8 +54,10 @@ private:
     int next_to_evict; // This is for the opt algorithm.
     int frames_used; // Used for the start as to see how many frames are in use.
     int parameter; // Used for Working Set/Aging. It is the extra parameter.
+    int age; // This is used for the aging algorithm to update after a number of writes.
     TableEntry* pTable; // The page table itself.
     TableEntry** fTable; // The inverted Page Table.
+    int* next_occur; // The future table. Only used with OPT
 };
 
 #endif	/* PAGETABLE_H */
