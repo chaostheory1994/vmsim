@@ -94,7 +94,7 @@ int readArgs(int argc, char** argv) {
     }
     
     if(alg == AGING || alg == WORKING_SET_CLOCK){
-        if(param = -1){
+        if(param == -1){
             print_help();
             return FAILURE;
         }

@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <queue>
+#include <unistd.h>
 
 /*
  * Constructor
@@ -36,11 +38,19 @@ PageTable::PageTable(int frames, int alg, char* filename) {
         pTable[i].isReferenced = 0;
         pTable[i].timeStamp = -1;
     }
-    // Future table for opt initialize
-    next_occur = NULL;
     
     // We are gonna want to open the file.
     tracefile = fopen(filename, "r");
+    
+#ifdef USEOLDFUTURE
+    // Future table for opt initialize
+    next_occur = NULL;
+#else
+    // Initial recording of future.
+    if(tracefile != NULL && alg == OPT) find_future_t();
+#endif
+    
+    
     
     // Initialize the stat variables
     page_faults = 0;
@@ -51,6 +61,7 @@ PageTable::PageTable(int frames, int alg, char* filename) {
     
     frames_used = 0; // At the start 0 frames are being used.
     algorithm = alg;
+    
 }
 
 PageTable::PageTable(const PageTable& orig) {
@@ -60,7 +71,10 @@ PageTable::PageTable(const PageTable& orig) {
 PageTable::~PageTable() {
     delete[] pTable;
     delete[] fTable;
+#ifdef USEOLDALGORITHM
     if(algorithm == OPT) delete[] next_occur;
+#else
+#endif
     fclose(tracefile);
 }
 
@@ -107,6 +121,8 @@ void PageTable::evictpage(int frame){
         std::cout << "ERR: Tried to evict frame already empty" << std::endl;
         return;
     }
+    // Update stats
+    if(fTable[frame]->isDirty) total_writes++;
     
     // Checks have passed. Proceed to evict frame.
     fTable[frame]->isDirty = false;
@@ -114,6 +130,7 @@ void PageTable::evictpage(int frame){
     fTable[frame] = NULL;
     // Update Page Table
     frames_used--;
+    // Update stats
 }
 
 /*
@@ -124,6 +141,7 @@ void PageTable::setModifier(int param){
     parameter = param;
 }
 
+#ifdef USEOLDFUTURE
 /*
  * This is a sub method for opt
  * It will look for the first occurance of the page in the future.
@@ -131,7 +149,7 @@ void PageTable::setModifier(int param){
  * It will also restore the current file pointer.
  */
 int PageTable::find_future(int page){
-    printf("OPT: Looking for future of page %d\n", page);
+    printf("OPT: Looking for future of page %x\n", page);
     unsigned long position; // To store the position
     unsigned int fpage = 0;
     int retval = mem_accesses;
@@ -140,13 +158,14 @@ int PageTable::find_future(int page){
     position = ftell(tracefile); // Store position
     // Now that we have where we left off store, we can look into the future.
     do{
+        printf("%x is not equal to %x\n", fpage, page);
         // Iterate the return value
         retval++;
         // Read an address
         fscanf(tracefile, "%x %c", &fpage, &c);
         // Convert to page number
         fpage = fpage >> 12;
-    }while(fpage != page || !feof(tracefile));
+    }while(fpage != page && !feof(tracefile));
     // Restore place in file
     fseek(tracefile, position, SEEK_SET);
     // Did we find the next position?
@@ -155,6 +174,28 @@ int PageTable::find_future(int page){
     }
     else return retval;
 }
+#else
+/*
+ * This is a second method for speeding up opt.
+ * It will parse the file
+ * and build a record in the page table.
+ */
+void PageTable::find_future_t(){
+    unsigned int adr;
+    char c;
+    int thread_location = 0;
+    std::cout << "Parsing file and recording future." << std::endl;
+    while(!feof(tracefile)){
+        thread_location++;
+        fscanf(tracefile, "%x %c", &adr, &c); // Read address
+        adr = adr >> 12; // convert to page number
+        pTable[adr].q.push(thread_location);
+    }
+    std::cout << "Future Recorded!" << std::endl;
+    fseek(tracefile, 0, SEEK_SET);
+}
+#endif
+
 /* This is an implementation of the optimal algorithm
  * It will assume perfect knowledge by creating a thread that
  * will provide perfect knowledge. This way the main thread
@@ -162,20 +203,29 @@ int PageTable::find_future(int page){
  */
 void PageTable::opt(int page){
     int i;
+#ifdef USEOLDFUTURE
     // Does the array need initialized?
     if(next_occur == NULL) next_occur = new int[num_frames];
+#else
+    // Lets pop the pages queue.
+    pTable[page].q.pop();
+#endif
+    
     // First thing to do is check to see if there is a frame available.
     if(frames_used < num_frames){
         // There is a frame available. Lets find it and put it in.
         for(i = 0; fTable[i] != NULL; i++);
         pagetoframe(page, i); // Insert the page into that frame.
+#ifdef USEOLDFUTURE
         // Lets find how far in the future this page will be next accessed.
         next_occur[i] = find_future(page);
+#endif
     }
     else{
         int valid_evict = 0;
         // The frames are all full.
         // We need to evict one.
+#ifdef USEOLDFUTURE
         // We simply look for a -1 or the largest value in next_occur.
         for(i = 1; i < num_frames; i++){
             if(next_occur[i] > next_occur[valid_evict]){
@@ -192,6 +242,27 @@ void PageTable::opt(int page){
         pagetoframe(page, valid_evict);
         // update next_occur for new page.
         next_occur[valid_evict] = find_future(page);
+#else
+        valid_evict = -1;
+        // This is easy, we search the inverted page table for the largest next occurance.
+        // If we find that the value is null, we will sleep the main thread.
+        // Unless however, the future thread has finished.
+        for(i = 0; i < num_frames; i++){
+            // If the queue is empty, then all occurances of that page are done and we can evict.
+            if(fTable[i]->q.empty()){
+                valid_evict = i;
+                break;
+            } // If an element is in the queue, we check against the other queue elements.
+            else if(valid_evict == -1 || fTable[i]->q.front() > fTable[valid_evict]->q.front()){
+                valid_evict = i;
+            }
+        }
+        // Next we evict the page
+        evictpage(valid_evict);
+        // Next we put the correct page into memory
+        pagetoframe(page, valid_evict);
+        
+#endif
     }
 }
 
@@ -249,11 +320,6 @@ void PageTable::aging(int page){
         for(i = 0; i < num_frames; i++){
             if(fTable[i] != NULL){ // If a page exists in the frame. shift right the reference bit.
                 fTable[i]->isReferenced = fTable[i]->isReferenced >> 1;
-                // Lets also store the smallest incase for eviction.
-                if(valid_evict == -1 || 
-                        fTable[i]->isReferenced < fTable[valid_evict]->isReferenced){
-                    valid_evict = i;
-                }
             }
         }
         age = mem_accesses;
@@ -264,19 +330,23 @@ void PageTable::aging(int page){
         for(i = 0; fTable[i] != NULL; i++);
         pagetoframe(page, i); // Insert the page into that frame.
         // Next algorithm specific add a bit to the end.
-        fTable[i]->isReferenced += REF_END_BIT;
+        fTable[i]->isReferenced |= REF_END_BIT;
         
     }
     else{
         // The frames are all full.
         // We need to evict one.
-        // During the shift loop, we had already stored the value of an evict possiblity.
+        // We need to iterate through and find which frame to evict
+        for(i = 0; i < num_frames; i++){
+            if(valid_evict == -1 || fTable[i]->isReferenced < fTable[valid_evict]->isReferenced)
+                valid_evict = i;
+        }
         evictpage(valid_evict); // Evict that page
         pagetoframe(page, valid_evict); // Put that page into a frame.
         // Now page to frame will set isReferenced to one.
         // This will not hurt anything since it will be shifted off anyway.
         // However, we do need to still add on the end bit.
-        fTable[valid_evict]->isReferenced += REF_END_BIT;
+        fTable[valid_evict]->isReferenced |= REF_END_BIT;
         
     }
     
@@ -294,7 +364,7 @@ void PageTable::working_clock(int page){
     int valid_page; // The stored valid page.
     int no_choice = -1; // In case of a cycle.
     // This method required a modifier to be set.
-    if(parameter = -1) return;
+    if(parameter == -1) return;
     // First thing to do is check to see if there is a frame available.
     if(frames_used < num_frames){
         // There is a frame available. Lets find it and put it in.
@@ -350,7 +420,7 @@ void PageTable::working_clock(int page){
             // Next we need to iterate curr;
             curr++;
             if(curr >= num_frames) curr = 0;
-        } while(hasCycled != curr || !foundValid);
+        } while((hasCycled != curr && !foundValid) || no_choice == -1);
         
         // Did we encounter a cycle?
         if(!foundValid){
@@ -373,12 +443,15 @@ void PageTable::working_clock(int page){
  */
 void PageTable::useAddress(unsigned int adr, bool isWriting){
     int i;
+    static unsigned int prev =  0;
     // Lets convert the address to a page number.
     unsigned int page_num = adr & PAGE_ADDRESS_AND; // And off the offset
     page_num = page_num >> 12; // Shift the page number to be correct
     
     // Then lets iterate the a stat.
     mem_accesses++;
+
+    prev = adr;
     // Iterate Writes if necessary
     if(isWriting) total_writes++;
     
@@ -412,15 +485,26 @@ void PageTable::useAddress(unsigned int adr, bool isWriting){
                 if(fTable[i] != NULL) // If a page exists in the frame. shift right the reference bit.
                     fTable[i]->isReferenced = fTable[i]->isReferenced >> 1;
             }
-            pTable[page_num].isReferenced += REF_END_BIT;
+            pTable[page_num].isReferenced |= REF_END_BIT;
             // Update age
             age = mem_accesses;
         }
+        else if(algorithm == AGING){
+            pTable[page_num].isReferenced |= REF_END_BIT;
+        }
         // This is for OPT algorithm
         else if(algorithm == OPT){
+#ifdef USEOLDFUTURE
             // if a page in a frame hits its next occurance.
             // Then we need to update the next occurance to be even further. 
             next_occur[pTable[page_num].frameNum] = find_future(page_num);
+#else
+            // If a hit occurs, we simply deque it from the queue.
+            pTable[page_num].q.pop();
+#endif
+        }
+        else{
+            pTable[page_num].isReferenced = 1;
         }
     }
     
@@ -433,13 +517,15 @@ void PageTable::useAddress(unsigned int adr, bool isWriting){
 void PageTable::beginFileTraverse(){
     unsigned int adr;
     char mode;
-    while(!feof(tracefile)){
+    bool foundEOF = false;
+    while(!foundEOF){
         fscanf(tracefile, "%x %c", &adr, &mode);
-        std::cout.setf(std::ios::hex, std::ios::basefield);
+        /*std::cout.setf(std::ios::hex, std::ios::basefield);
         std::cout << "Read: " << adr;
         std::cout.unsetf(std::ios::hex);
-        std::cout << " " << mode << std::endl;
-        useAddress(adr, (mode == 'C' || mode == 'c'));
+        std::cout << " " << mode << std::endl;*/
+        if(!feof(tracefile))useAddress(adr, (mode == 'W' || mode == 'w'));
+        else foundEOF = true;
     }
 }
 

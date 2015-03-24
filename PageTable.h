@@ -9,6 +9,7 @@
 #define	PAGETABLE_H
 #include <cstdlib>
 #include <cstdio>
+#include <queue>
 #define PAGE_SIZE 4096
 #define PAGE_ADDRESS_AND 0xFFFFF000
 #define OPT 0
@@ -23,6 +24,7 @@ typedef struct TableEntry{
     int frameNum; // Frame Number
     unsigned int timeStamp; // Timestamp for certain algorithms.
     unsigned char isReferenced; // Reference bit. Set as int for aging algorithm
+    std::queue<int> q; // For the opt algorithm. Otherwise wont be used.
 } TableEntry;
 
 class PageTable {
@@ -37,7 +39,11 @@ public:
     void setModifier(int);
     bool isFileOpen();
 private:
+#ifdef USEOLDFUTURE
     int find_future(int);
+#else
+    void find_future_t();
+#endif
     void opt(int);
     void notworking_clock(int);
     void aging(int);
@@ -57,7 +63,10 @@ private:
     int age; // This is used for the aging algorithm to update after a number of writes.
     TableEntry* pTable; // The page table itself.
     TableEntry** fTable; // The inverted Page Table.
+#ifdef USEOLDFUTURE
     int* next_occur; // The future table. Only used with OPT
+#else
+#endif
 };
 
 #endif	/* PAGETABLE_H */
