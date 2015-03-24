@@ -132,6 +132,7 @@ int main(int argc, char** argv) {
     if(readArgs(argc, argv) == SUCCESS){
         PT->beginFileTraverse();
         PT->printTrace();
+        delete PT;
     }
     return 0;
 }
