@@ -36,7 +36,8 @@ public:
     void useAddress(unsigned int, bool);
     void printTrace();
     void beginFileTraverse();
-    void setModifier(int);
+    void setRefresh(int);
+    void setTau(int);
     bool isFileOpen();
 private:
 #ifdef USEOLDFUTURE
@@ -55,6 +56,7 @@ private:
     unsigned int mem_accesses; // Stat variable
     int total_writes; // Stat variable
     int num_frames; // Number of physical memory frames.
+    int tau;
     int num_pages; // Number of pages in virtual memory.
     int algorithm; // The algorithm set to be used.
     int next_to_evict; // This is for the opt algorithm.

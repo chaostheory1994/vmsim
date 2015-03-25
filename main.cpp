@@ -46,6 +46,7 @@ int readArgs(int argc, char** argv) {
     int alg = -1;
     int frames = -1;
     int param = -1;
+    int tau = -1;
     char* filename;
     int filename_size = strlen(argv[argc - 1]); // Get the filename string size.
     if(argc == 1){
@@ -83,7 +84,7 @@ int readArgs(int argc, char** argv) {
         }
         else if(!strcmp(argv[i], "-t")){
             i++;
-            param = atoi(argv[i]);
+            tau = atoi(argv[i]);
         }
     }
     
@@ -98,6 +99,11 @@ int readArgs(int argc, char** argv) {
             print_help();
             return FAILURE;
         }
+    }
+    
+    if(alg == WORKING_SET_CLOCK && tau == -1){
+        print_help();
+        return FAILURE;
     }
     
     PT = new PageTable(frames, alg, filename);
@@ -115,7 +121,11 @@ int readArgs(int argc, char** argv) {
     }
     
     if(alg == AGING || alg == WORKING_SET_CLOCK){
-        PT->setModifier(param);
+        PT->setRefresh(param);
+    }
+    
+    if(alg == WORKING_SET_CLOCK){
+        PT->setTau(tau);
     }
     return SUCCESS;
 }

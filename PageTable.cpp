@@ -57,7 +57,10 @@ PageTable::PageTable(int frames, int alg, char* filename) {
     mem_accesses = 0;
     total_writes = 0;
     
+    age = 0;
+    
     parameter = -1;
+    tau = -1;
     
     frames_used = 0; // At the start 0 frames are being used.
     algorithm = alg;
@@ -134,12 +137,19 @@ void PageTable::evictpage(int frame){
 }
 
 /*
- * A simple method that will set the extra value needed
+ * A simple method that will set the refresh value needed
  * for 2 of the algorithm
  */
-void PageTable::setModifier(int param){
+void PageTable::setRefresh(int param){
     parameter = param;
 }
+ /*
+  * Another simple method that will set tau for working set.
+  */
+void PageTable::setTau(int param){
+    tau = param;
+}
+
 
 #ifdef USEOLDFUTURE
 /*
@@ -364,7 +374,16 @@ void PageTable::working_clock(int page){
     int valid_page; // The stored valid page.
     int no_choice = -1; // In case of a cycle.
     // This method required a modifier to be set.
-    if(parameter == -1) return;
+    if(parameter == -1 || tau == -1) return;
+    // Update reference from fresh
+    if((mem_accesses - age) >= parameter){
+        for(i = 0; i < num_frames; i++){
+            if(fTable[i] != NULL){ // If a page exists in the frame. set reference bit to 0
+                fTable[i]->isReferenced = 0;
+            }
+        }
+        age = mem_accesses;
+    }
     // First thing to do is check to see if there is a frame available.
     if(frames_used < num_frames){
         // There is a frame available. Lets find it and put it in.
@@ -387,7 +406,7 @@ void PageTable::working_clock(int page){
             else{
                 // The reference bit was not set.
                 // Is the age within tau to evict?
-                if((mem_accesses - fTable[curr]->timeStamp) > parameter){
+                if((mem_accesses - fTable[curr]->timeStamp) > tau){
                     // This means the age is outside the working set.
                     // However we need to check if it is dirty.
                     if(fTable[curr]->isDirty){
@@ -504,6 +523,14 @@ void PageTable::useAddress(unsigned int adr, bool isWriting){
 #endif
         }
         else{
+            if((mem_accesses - age) >= parameter){
+                for(i = 0; i < num_frames; i++){
+                    if(fTable[i] != NULL){ // If a page exists in the frame. set reference bit to 0;
+                        fTable[i]->isReferenced = 0;
+                    }
+                }
+                age = mem_accesses;
+            }
             pTable[page_num].isReferenced = 1;
         }
     }
